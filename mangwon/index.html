@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>망원 냄새 지도 웹사이트</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            background-color: white; 
+        }
+
+        .map-container {
+            position: relative; 
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden; 
+        }
+
+        .map-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            cursor: grab;
+        }
+
+        .map-wrapper:active {
+            cursor: grabbing;
+        }
+
+        .map-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            transform-origin: 0 0;
+            transition: transform 0.1s ease-out, opacity 0.3s ease-in-out;
+            display: none;
+        }
+
+        #main-map { 
+            z-index: 1;
+            display: block;
+        } 
+        
+        #scent-overlay-text { 
+            z-index: 50;
+            opacity: 1;
+            display: block;
+            animation: none;
+        } 
+
+        @keyframes scent-distortion {
+            0% { opacity: 0.4; }
+            50% { opacity: 1.0; }
+            100% { opacity: 0.6; }
+        }
+        .scent-image { 
+            z-index: 5; 
+            animation: scent-distortion 7s infinite ease-in-out alternate; 
+        }
+        .scent-image.on { 
+            display: block; 
+        }
+
+        .panel-area {
+            position: absolute;
+            top: 25px;
+            left: 25px;
+            z-index: 100;
+            width: 300px;
+        }
+        #fixed-panel img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .zoom-controls-wrapper {
+            position: absolute;
+            z-index: 101;
+            top: 260px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 86%;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .zoom-controls-wrapper span {
+            font-size: 18px;
+            font-weight: bold;
+            color: #555;
+            width: 10px;
+            text-align: center;
+        }
+        #zoom-slider {
+            flex-grow: 1;
+            -webkit-appearance: none;
+            height: 6px;
+            background: #ddd;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        #zoom-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #58b23c;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        #zoom-reset-btn {
+            padding: 5px 10px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            width: 30px;
+        }
+        
+        .detail-position {
+            position: absolute; 
+            top: 360px;
+            left: 50%;
+            transform: translateX(-50%); 
+            display: flex; 
+            flex-direction: column; 
+            gap: 1px;
+            z-index: 101; 
+            width: 86%;
+            box-sizing: border-box;
+        }
+        .control-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+            color: #333;
+            font-size: 15px;
+            font-weight: 500;
+        }
+
+        .switch-wrapper {
+            position: relative;
+            display: inline-block;
+            width: 45px;
+            height: 25px;
+        }
+
+        .switch-input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 25px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 19px;
+            width: 19px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        .switch-input:checked + .slider {
+            background-color: #58b23c;
+        }
+
+        .switch-input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+    </style>
+</head>
+<body>
+
+<div class="map-container">
+    <div class="map-wrapper">
+        <img id="main-map" class="map-image" src="https://i.imgur.com/cQfkRcI.jpeg" alt="지도 배경">
+        <img id="scent-all" class="map-image scent-image" data-scents="all" src="https://i.imgur.com/BFzYx7v.png" alt="냄새 전체 켰을때">
+        <img id="scent-fresh" class="map-image scent-image" data-scents="fresh" src="https://i.imgur.com/G5llVM9.png" alt="상쾌한 냄새만 켰을때">
+        <img id="scent-trash" class="map-image scent-image" data-scents="trash" src="https://i.imgur.com/qgQLyZ3.png" alt="쓰레기 냄새만 켰을때">
+        <img id="scent-smoke" class="map-image scent-image" data-scents="smoke" src="https://i.imgur.com/mw7Qh2j.jpeg" alt="담배 냄새만 켰을때">
+        <img id="scent-fresh-smoke" class="map-image scent-image" data-scents="fresh-smoke" src="https://i.imgur.com/CsUQref.jpeg" alt="상쾌한, 담배 냄새 켰을때">
+        <img id="scent-fresh-trash" class="map-image scent-image" data-scents="fresh-trash" src="https://i.imgur.com/e7H7pVy.jpeg" alt="상쾌한, 쓰레기 냄새 켰을때">
+        <img id="scent-trash-smoke" class="map-image scent-image" data-scents="trash-smoke" src="https://i.imgur.com/97wkejc.jpeg" alt="쓰레기, 담배 냄새 켰을때">
+        <img id="scent-off" class="map-image scent-image" data-scents="off" src="https://i.imgur.com/OP1mbIg.png" alt="냄새 전체 껐을때">
+        <img id="scent-overlay-text" class="map-image" src="https://i.imgur.com/0HoImHR.png" alt="냄새 설명 텍스트">
+    </div>
+    
+    <div class="panel-area">
+        <div id="fixed-panel" class="panel-image-container">
+            <img src="https://i.imgur.com/c0POzmV.png" alt="고정된 전체 패널 이미지">
+        </div>
+
+        <div class="zoom-controls-wrapper">
+            <span>-</span>
+            <input type="range" id="zoom-slider" min="1.0" max="5.0" step="0.1" value="1.0">
+            <span>+</span>
+            <button id="zoom-reset-btn" data-action="zoom-reset">0</button>
+        </div>
+        
+        <div id="map-detail-controls" class="detail-position">
+            
+            <div class="control-row">
+                <span>지도 배경 보기</span>
+                <label class="switch-wrapper">
+                    <input type="checkbox" id="toggle-map-bg" class="switch-input" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="control-row">
+                <span>냄새 정보 보기</span>
+                <label class="switch-wrapper">
+                    <input type="checkbox" id="toggle-scent-text" class="switch-input" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="control-row">
+                <span>쓰레기 냄새 보기</span>
+                <label class="switch-wrapper">
+                    <input type="checkbox" id="toggle-trash" class="switch-input scent-toggle" data-scent="trash" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="control-row">
+                <span>담배 냄새 보기</span>
+                <label class="switch-wrapper">
+                    <input type="checkbox" id="toggle-smoke" class="switch-input scent-toggle" data-scent="smoke" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            
+            <div class="control-row">
+                <span>상쾌한 냄새 보기</span>
+                <label class="switch-wrapper">
+                    <input type="checkbox" id="toggle-fresh" class="switch-input scent-toggle" data-scent="fresh" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const mapWrapper = document.querySelector('.map-wrapper');
+        const mainMap = document.getElementById('main-map');
+        const scentText = document.getElementById('scent-overlay-text');
+        const zoomSlider = document.getElementById('zoom-slider');
+        const zoomResetBtn = document.getElementById('zoom-reset-btn');
+        
+        const scentImages = document.querySelectorAll('.scent-image');
+        const transformTargets = [mainMap, scentText, ...scentImages]; 
+
+        let currentScale = 1.0;
+        let currentX = 0; 
+        let currentY = 0;
+        let isDragging = false;
+        let startDragX, startDragY;
+
+        const MIN_SCALE = parseFloat(zoomSlider.min);
+        const MAX_SCALE = parseFloat(zoomSlider.max);
+        
+        const activeScents = new Set(['trash', 'smoke', 'fresh']); 
+        
+        const scentMap = {
+            'trash': document.getElementById('scent-trash'),
+            'smoke': document.getElementById('scent-smoke'),
+            'fresh': document.getElementById('scent-fresh'),
+            'smoke-trash': document.getElementById('scent-trash-smoke'), 
+            'fresh-smoke': document.getElementById('scent-fresh-smoke'),
+            'fresh-trash': document.getElementById('scent-fresh-trash'),
+            'all': document.getElementById('scent-all'),
+            'off': document.getElementById('scent-off')
+        };
+
+        function applyTransform() {
+            currentScale = parseFloat(zoomSlider.value);
+
+            const transformValue = `scale(${currentScale}) translate(${currentX / currentScale}px, ${currentY / currentScale}px)`;
+            
+            transformTargets.forEach(el => {
+                el.style.transform = transformValue;
+            });
+
+            mapWrapper.style.cursor = (currentScale > MIN_SCALE && !isDragging) ? 'grab' : 'default';
+        }
+        
+        zoomSlider.addEventListener('input', (e) => {
+            currentScale = parseFloat(e.target.value);
+            if (currentScale === MIN_SCALE) {
+                currentX = 0;
+                currentY = 0;
+            }
+            applyTransform();
+        });
+
+        zoomResetBtn.addEventListener('click', () => {
+            zoomSlider.value = MIN_SCALE; 
+            currentX = 0;
+            currentY = 0;
+            applyTransform();
+        });
+
+        mapWrapper.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            if (currentScale === MIN_SCALE) return; 
+            isDragging = true;
+            
+            startDragX = e.clientX - currentX;
+            startDragY = e.clientY - currentY;
+            mapWrapper.style.cursor = 'grabbing';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            
+            currentX = e.clientX - startDragX;
+            currentY = e.clientY - startDragY;
+            
+            applyTransform();
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            if (currentScale > MIN_SCALE) {
+                 mapWrapper.style.cursor = 'grab';
+            }
+        });
+        
+        const updateScentOverlay = () => {
+            const sortedScents = Array.from(activeScents).sort();
+            let scentKey;
+
+            if (activeScents.size === 0) { scentKey = 'off'; } 
+            else if (activeScents.size === 3) { scentKey = 'all'; } 
+            else { scentKey = sortedScents.join('-'); }
+            
+            document.querySelectorAll('.scent-image').forEach(img => {
+                if (img.id !== 'scent-overlay-text') {
+                    img.classList.remove('on');
+                }
+            });
+
+            const targetImage = scentMap[scentKey];
+            if (targetImage) { 
+                targetImage.classList.add('on'); 
+            } else { 
+                scentMap['off'].classList.add('on'); 
+            }
+        };
+        
+        document.getElementById('map-detail-controls').addEventListener('change', (e) => {
+            const input = e.target;
+            if (input.type !== 'checkbox') return;
+
+            if (input.id === 'toggle-map-bg') { 
+                document.getElementById('main-map').style.display = input.checked ? 'block' : 'none'; 
+            } else if (input.id === 'toggle-scent-text') { 
+                document.getElementById('scent-overlay-text').style.opacity = input.checked ? '1' : '0'; 
+            } 
+            else if (input.classList.contains('scent-toggle')) {
+                const scentType = input.dataset.scent;
+                if (input.checked) { activeScents.add(scentType); } 
+                else { activeScents.delete(scentType); }
+                updateScentOverlay();
+            }
+        });
+
+        updateScentOverlay();
+        document.getElementById('scent-overlay-text').style.opacity = '1'; 
+        applyTransform();
+    });
+</script>
+</body>
+</html>
